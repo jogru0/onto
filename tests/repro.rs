@@ -27,10 +27,8 @@ fn git_init_2(path: &str) -> std::result::Result<Repository, git2::Error> {
     git2::Repository::init(path)
 }
 
-fn git_create_branch_2(path: &str, name: &str) -> std::result::Result<(), Error> {
-    let repo = Repository::open(path).unwrap();
-
-    if let Some(commit) = find_last_commit(&repo)? {
+fn git_create_branch_2(repo: &Repository, name: &str) -> std::result::Result<(), Error> {
+    if let Some(commit) = find_last_commit(repo)? {
         repo.branch(name, &commit, false)?;
     }
 
@@ -53,9 +51,7 @@ fn git_create_branch(path: &str, name: &str) -> std::result::Result<(), Error> {
     }
 }
 
-fn git_switch_to_branch_2(path: &str, name: &str) -> std::result::Result<(), Error> {
-    let repo = Repository::open(path).unwrap();
-
+fn git_switch_to_branch_2(repo: &Repository, name: &str) -> std::result::Result<(), Error> {
     let branch = repo.find_branch(name, BranchType::Local)?;
     let commit = branch.get().peel_to_commit()?;
 
@@ -83,9 +79,7 @@ fn git_rebase(path: &str, name: &str) -> std::result::Result<(), Error> {
     }
 }
 
-fn git_rebase_2(path: &str, name: &str) -> std::result::Result<(), Error> {
-    let repo = Repository::open(path).unwrap();
-
+fn git_rebase_2(repo: &Repository, name: &str) -> std::result::Result<(), Error> {
     let branch = repo.find_branch(name, BranchType::Local)?;
     let annotated_commit = repo.reference_to_annotated_commit(branch.get())?;
 
@@ -136,9 +130,10 @@ fn find_last_commit(repo: &Repository) -> Result<Option<Commit>, git2::Error> {
         .map_err(|_| git2::Error::from_str("Couldn't find commit"))
 }
 
-fn git_commit_2(path: &str, name: &str) -> std::result::Result<(), anyhow::Error> {
-    let repo = Repository::open(path).unwrap();
-
+fn git_commit_2<'a>(
+    repo: &'a Repository,
+    name: &str,
+) -> std::result::Result<Commit<'a>, anyhow::Error> {
     let path = repo.workdir().ok_or(Error::msg("no worktree found"))?;
     let file_name = path.join(name);
     File::create_new(file_name)?;
@@ -149,11 +144,11 @@ fn git_commit_2(path: &str, name: &str) -> std::result::Result<(), anyhow::Error
     index.write()?;
 
     let signature = repo.signature()?;
-    let maybe_parent = find_last_commit(&repo)?;
+    let maybe_parent = find_last_commit(repo)?;
     let maybe_parent_ref = maybe_parent.as_ref();
     let parents = maybe_parent_ref.as_slice();
     let tree = repo.find_tree(oid)?;
-    let _res = repo.commit(
+    let res = repo.commit(
         Some("HEAD"), //  point HEAD to our new commit
         &signature,   // author
         &signature,   // committer
@@ -162,8 +157,8 @@ fn git_commit_2(path: &str, name: &str) -> std::result::Result<(), anyhow::Error
         // parents
         parents,
     )?;
-    Ok(())
-    // Ok(repo.find_commit(res)?
+
+    Ok(repo.find_commit(res)?)
 }
 
 pub fn remove_dir_if_found(dir: &str) -> Result<(), std::io::Error> {
@@ -245,38 +240,38 @@ fn repro_issue_2() {
 
     let path = "out/repro_issue_2";
     remove_dir_if_found(path).unwrap();
-    git_init_2(path).unwrap();
+    let repo = git_init_2(path).unwrap();
 
-    git_commit_2(path, "a").unwrap();
-    git_commit_2(path, "b").unwrap();
-    git_commit_2(path, "c").unwrap();
+    git_commit_2(&repo, "a").unwrap();
+    git_commit_2(&repo, "b").unwrap();
+    git_commit_2(&repo, "c").unwrap();
 
-    git_create_branch_2(path, branch_1).unwrap();
-    git_commit_2(path, "alpha").unwrap();
-    git_commit_2(path, "beta").unwrap();
+    git_create_branch_2(&repo, branch_1).unwrap();
+    git_commit_2(&repo, "alpha").unwrap();
+    git_commit_2(&repo, "beta").unwrap();
 
-    git_create_branch_2(path, branch_2).unwrap();
-    git_commit_2(path, "v").unwrap();
-    git_commit_2(path, "w").unwrap();
+    git_create_branch_2(&repo, branch_2).unwrap();
+    git_commit_2(&repo, "v").unwrap();
+    git_commit_2(&repo, "w").unwrap();
 
-    git_switch_to_branch_2(path, main).unwrap();
-    git_commit_2(path, "d").unwrap();
-    git_commit_2(path, "e").unwrap();
+    git_switch_to_branch_2(&repo, main).unwrap();
+    git_commit_2(&repo, "d").unwrap();
+    git_commit_2(&repo, "e").unwrap();
 
-    git_switch_to_branch_2(path, branch_1).unwrap();
-    git_commit_2(path, "gamma").unwrap();
-    git_commit_2(path, "delta").unwrap();
+    git_switch_to_branch_2(&repo, branch_1).unwrap();
+    git_commit_2(&repo, "gamma").unwrap();
+    git_commit_2(&repo, "delta").unwrap();
 
-    git_switch_to_branch_2(path, branch_2).unwrap();
-    git_commit_2(path, "x").unwrap();
-    git_commit_2(path, "y").unwrap();
+    git_switch_to_branch_2(&repo, branch_2).unwrap();
+    git_commit_2(&repo, "x").unwrap();
+    git_commit_2(&repo, "y").unwrap();
 
-    git_switch_to_branch_2(path, branch_1).unwrap();
-    git_rebase_2(path, main).unwrap();
-    git_commit_2(path, "lambda").unwrap();
-    git_commit_2(path, "sigma").unwrap();
-    git_commit_2(path, "omega").unwrap();
+    git_switch_to_branch_2(&repo, branch_1).unwrap();
+    git_rebase_2(&repo, main).unwrap();
+    git_commit_2(&repo, "lambda").unwrap();
+    git_commit_2(&repo, "sigma").unwrap();
+    git_commit_2(&repo, "omega").unwrap();
 
-    git_switch_to_branch_2(path, branch_2).unwrap();
-    git_commit_2(path, "z").unwrap();
+    git_switch_to_branch_2(&repo, branch_2).unwrap();
+    git_commit_2(&repo, "z").unwrap();
 }
