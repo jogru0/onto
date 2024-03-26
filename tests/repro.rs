@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Error;
-use git2::{Commit, ObjectType, Repository};
+use git2::{BranchType, Commit, ObjectType, Repository};
 
 fn git(path: &str) -> Command {
     let mut command = Command::new("git");
@@ -56,7 +56,7 @@ fn git_create_branch(path: &str, name: &str) -> std::result::Result<(), Error> {
 fn git_switch_to_branch_2(path: &str, name: &str) -> std::result::Result<(), Error> {
     let repo = Repository::open(path).unwrap();
 
-    let branch = repo.find_branch(name, git2::BranchType::Local)?;
+    let branch = repo.find_branch(name, BranchType::Local)?;
     let commit = branch.get().peel_to_commit()?;
 
     repo.checkout_tree(commit.as_object(), None)?;
@@ -81,6 +81,25 @@ fn git_rebase(path: &str, name: &str) -> std::result::Result<(), Error> {
     } else {
         Ok(())
     }
+}
+
+fn git_rebase_2(path: &str, name: &str) -> std::result::Result<(), Error> {
+    let repo = Repository::open(path).unwrap();
+
+    let branch = repo.find_branch(name, BranchType::Local)?;
+    let annotated_commit = repo.reference_to_annotated_commit(branch.get())?;
+
+    let mut rebase = repo.rebase(None, Some(&annotated_commit), None, None)?;
+
+    while let Some(maybe_op) = rebase.next() {
+        let op = maybe_op?;
+        dbg!(op.kind().unwrap());
+        rebase.commit(None, &repo.signature()?, None)?;
+    }
+
+    rebase.finish(None)?;
+
+    Ok(())
 }
 
 fn git_commit(path: &str, name: &str) -> std::result::Result<(), Error> {
@@ -253,7 +272,7 @@ fn repro_issue_2() {
     git_commit_2(path, "y").unwrap();
 
     git_switch_to_branch_2(path, branch_1).unwrap();
-    git_rebase(path, main).unwrap();
+    git_rebase_2(path, main).unwrap();
     git_commit_2(path, "lambda").unwrap();
     git_commit_2(path, "sigma").unwrap();
     git_commit_2(path, "omega").unwrap();
