@@ -130,6 +130,16 @@ fn find_last_commit(repo: &Repository) -> Result<Option<Commit>, git2::Error> {
         .map_err(|_| git2::Error::from_str("Couldn't find commit"))
 }
 
+fn git_commit_list<'a>(
+    repo: &'a Repository,
+    commits: &[&str],
+) -> std::result::Result<Vec<Commit<'a>>, anyhow::Error> {
+    commits
+        .iter()
+        .map(|commit| git_commit_2(repo, commit))
+        .collect()
+}
+
 fn git_commit_2<'a>(
     repo: &'a Repository,
     name: &str,
@@ -171,22 +181,6 @@ pub fn remove_dir_if_found(dir: &str) -> Result<(), std::io::Error> {
         }
     })
 }
-
-// fn git_what(repo: &mut Repository, name: &str) -> std::result::Result<(), anyhow::Error> {
-//     // let path = repo.workdir().ok_or(Error::msg("no worktree found"))?;
-//     // let file_name = path.join(name);
-//     // File::create_new(file_name)?;
-
-//     repo.in
-
-//     repo.checkout_index(None, None).unwrap();
-
-//     // let mut index = repo.index()?;
-//     // index.add_path(Path::new(name))?;
-//     // index.write()?;
-
-//     Ok(())
-// }
 
 #[test]
 fn repro_issue() {
@@ -274,4 +268,55 @@ fn repro_issue_2() {
 
     git_switch_to_branch_2(&repo, branch_2).unwrap();
     git_commit_2(&repo, "z").unwrap();
+}
+
+#[test]
+fn repro_issue_3() {
+    let name = "repro_issue_3";
+    repro_issue_dynamic(
+        name,
+        &["a", "b", "c"],
+        // &["alpha", "beta"],
+        &[],
+        &["v", "w", "x", "y", "z"],
+        &["d", "e"],
+        &["gamma", "delta"],
+        &["lambda", "sigma", "omega"],
+    );
+}
+
+fn repro_issue_dynamic(
+    name: &str,
+    main_commits_pre: &[&str],
+    branch_1_commits_pre: &[&str],
+    branch_2_commits: &[&str],
+    main_commits_post: &[&str],
+    branch_1_commits_post_before_rebase: &[&str],
+    branch_1_commits_post_after_rebase: &[&str],
+) {
+    let main = "main";
+    let branch_1 = "branch_1";
+    let branch_2 = "branch_2";
+
+    let path = format!("out/{name}");
+    remove_dir_if_found(&path).unwrap();
+    let repo = git_init_2(&path).unwrap();
+
+    git_commit_list(&repo, main_commits_pre).unwrap();
+
+    git_create_branch_2(&repo, branch_1).unwrap();
+    git_commit_list(&repo, branch_1_commits_pre).unwrap();
+
+    git_create_branch_2(&repo, branch_2).unwrap();
+    git_commit_list(&repo, branch_2_commits).unwrap();
+
+    git_switch_to_branch_2(&repo, main).unwrap();
+    git_commit_list(&repo, main_commits_post).unwrap();
+
+    git_switch_to_branch_2(&repo, branch_1).unwrap();
+    git_commit_list(&repo, branch_1_commits_post_before_rebase).unwrap();
+    git_rebase_2(&repo, main).unwrap();
+    git_commit_list(&repo, branch_1_commits_post_after_rebase).unwrap();
+
+    git_switch_to_branch_2(&repo, branch_2).unwrap();
 }
