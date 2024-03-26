@@ -53,6 +53,18 @@ fn git_create_branch(path: &str, name: &str) -> std::result::Result<(), Error> {
     }
 }
 
+fn git_switch_to_branch_2(path: &str, name: &str) -> std::result::Result<(), Error> {
+    let repo = Repository::open(path).unwrap();
+
+    let branch = repo.find_branch(name, git2::BranchType::Local)?;
+    let commit = branch.get().peel_to_commit()?;
+
+    repo.checkout_tree(commit.as_object(), None)?;
+    repo.set_head(&format!("refs/heads/{name}"))?;
+
+    Ok(())
+}
+
 fn git_switch_to_branch(path: &str, name: &str) -> std::result::Result<(), Error> {
     let status = git(path).arg("switch").arg(name).spawn()?.wait()?;
     if !(status.success()) {
@@ -228,24 +240,24 @@ fn repro_issue_2() {
     git_commit_2(path, "v").unwrap();
     git_commit_2(path, "w").unwrap();
 
-    git_switch_to_branch(path, main).unwrap();
+    git_switch_to_branch_2(path, main).unwrap();
     git_commit_2(path, "d").unwrap();
     git_commit_2(path, "e").unwrap();
 
-    git_switch_to_branch(path, branch_1).unwrap();
+    git_switch_to_branch_2(path, branch_1).unwrap();
     git_commit_2(path, "gamma").unwrap();
     git_commit_2(path, "delta").unwrap();
 
-    git_switch_to_branch(path, branch_2).unwrap();
+    git_switch_to_branch_2(path, branch_2).unwrap();
     git_commit_2(path, "x").unwrap();
     git_commit_2(path, "y").unwrap();
 
-    git_switch_to_branch(path, branch_1).unwrap();
+    git_switch_to_branch_2(path, branch_1).unwrap();
     git_rebase(path, main).unwrap();
     git_commit_2(path, "lambda").unwrap();
     git_commit_2(path, "sigma").unwrap();
     git_commit_2(path, "omega").unwrap();
 
-    git_switch_to_branch(path, branch_2).unwrap();
-    git_commit(path, "z").unwrap();
+    git_switch_to_branch_2(path, branch_2).unwrap();
+    git_commit_2(path, "z").unwrap();
 }
