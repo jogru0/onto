@@ -1,12 +1,14 @@
 use std::{
-    fs::{remove_dir_all, File},
+    fs::{remove_dir_all, remove_file, File},
     io::ErrorKind,
     path::Path,
     process::Command,
 };
 
 use anyhow::Error;
+use assert_cmd::{assert::OutputAssertExt, cargo::CommandCargoExt};
 use git2::{BranchType, Commit, ObjectType, Repository};
+use predicates::prelude::predicate;
 
 fn git(path: &str) -> Command {
     let mut command = Command::new("git");
@@ -52,10 +54,25 @@ fn git_create_branch(path: &str, name: &str) -> std::result::Result<(), Error> {
 }
 
 fn git_switch_to_branch_2(repo: &Repository, name: &str) -> std::result::Result<(), Error> {
-    let branch = repo.find_branch(name, BranchType::Local)?;
-    let commit = branch.get().peel_to_commit()?;
+    if let Ok(branch) = repo.find_branch(name, BranchType::Local) {
+        let commit = branch.get().peel_to_commit()?;
+        repo.checkout_tree(commit.as_object(), None)?;
+    } else {
+        let mut index = repo.index()?;
+        let Some(repo_path) = repo.workdir() else {
+            return Err(Error::msg("workdir"));
+        };
 
-    repo.checkout_tree(commit.as_object(), None)?;
+        for entry in index.iter() {
+            let path = repo_path.join(String::from_utf8(entry.path)?);
+            dbg!(&path);
+            remove_file(path)?;
+        }
+
+        index.remove_all(Path::new("."), None)?;
+        index.write()?;
+    };
+
     repo.set_head(&format!("refs/heads/{name}"))?;
 
     Ok(())
@@ -130,14 +147,17 @@ fn find_last_commit(repo: &Repository) -> Result<Option<Commit>, git2::Error> {
         .map_err(|_| git2::Error::from_str("Couldn't find commit"))
 }
 
-fn git_commit_list<'a>(
-    repo: &'a Repository,
-    commits: &[&str],
-) -> std::result::Result<Vec<Commit<'a>>, anyhow::Error> {
-    commits
-        .iter()
-        .map(|commit| git_commit_2(repo, commit))
-        .collect()
+fn git_commit_list(
+    repo: &Repository,
+    commit_count: &mut u32,
+    number_commits: u32,
+) -> std::result::Result<(), anyhow::Error> {
+    let target = *commit_count + number_commits;
+    while *commit_count != target {
+        git_commit_2(repo, &commit_count.to_string())?;
+        *commit_count += 1;
+    }
+    Ok(())
 }
 
 fn git_commit_2<'a>(
@@ -273,27 +293,51 @@ fn repro_issue_2() {
 #[test]
 fn repro_issue_3() {
     let name = "repro_issue_3";
-    repro_issue_dynamic(
-        name,
-        &["a", "b", "c"],
-        // &["alpha", "beta"],
-        &[],
-        &["v", "w", "x", "y", "z"],
-        &["d", "e"],
-        &["gamma", "delta"],
-        &["lambda", "sigma", "omega"],
-    );
+
+    for n_main_commits_pre in 0..5 {
+        for n_branch_1_commits_pre in 0..5 {
+            for n_branch_2_commits in 0..5 {
+                for n_main_commits_post in 0..5 {
+                    for n_branch_1_commits_post_before_rebase in 0..5 {
+                        for n_branch_1_commits_post_after_rebase in 0..5 {
+                            repro_issue_dynamic(
+                                name,
+                                n_main_commits_pre,
+                                n_branch_1_commits_pre,
+                                n_branch_2_commits,
+                                n_main_commits_post,
+                                n_branch_1_commits_post_before_rebase,
+                                n_branch_1_commits_post_after_rebase,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn repro_issue_dynamic(
     name: &str,
-    main_commits_pre: &[&str],
-    branch_1_commits_pre: &[&str],
-    branch_2_commits: &[&str],
-    main_commits_post: &[&str],
-    branch_1_commits_post_before_rebase: &[&str],
-    branch_1_commits_post_after_rebase: &[&str],
+    n_main_commits_pre: u32,
+    n_branch_1_commits_pre: u32,
+    n_branch_2_commits: u32,
+    n_main_commits_post: u32,
+    n_branch_1_commits_post_before_rebase: u32,
+    n_branch_1_commits_post_after_rebase: u32,
 ) {
+    if n_main_commits_pre + n_main_commits_post == 0
+        || n_branch_1_commits_pre + n_branch_1_commits_post_before_rebase == 0
+    {
+        //What rebase?
+        return;
+    }
+
+    if n_branch_2_commits == 0 {
+        //Unsure what's happening.
+        return;
+    }
+
     let main = "main";
     let branch_1 = "branch_1";
     let branch_2 = "branch_2";
@@ -302,21 +346,41 @@ fn repro_issue_dynamic(
     remove_dir_if_found(&path).unwrap();
     let repo = git_init_2(&path).unwrap();
 
-    git_commit_list(&repo, main_commits_pre).unwrap();
+    let mut commit_count = 0;
+
+    git_commit_list(&repo, &mut commit_count, n_main_commits_pre).unwrap();
 
     git_create_branch_2(&repo, branch_1).unwrap();
-    git_commit_list(&repo, branch_1_commits_pre).unwrap();
+    git_commit_list(&repo, &mut commit_count, n_branch_1_commits_pre).unwrap();
+    let maybe_expected = find_last_commit(&repo).unwrap();
+    dbg!(&maybe_expected);
 
     git_create_branch_2(&repo, branch_2).unwrap();
-    git_commit_list(&repo, branch_2_commits).unwrap();
+    git_commit_list(&repo, &mut commit_count, n_branch_2_commits).unwrap();
 
     git_switch_to_branch_2(&repo, main).unwrap();
-    git_commit_list(&repo, main_commits_post).unwrap();
+    git_commit_list(&repo, &mut commit_count, n_main_commits_post).unwrap();
 
     git_switch_to_branch_2(&repo, branch_1).unwrap();
-    git_commit_list(&repo, branch_1_commits_post_before_rebase).unwrap();
+    git_commit_list(
+        &repo,
+        &mut commit_count,
+        n_branch_1_commits_post_before_rebase,
+    )
+    .unwrap();
     git_rebase_2(&repo, main).unwrap();
-    git_commit_list(&repo, branch_1_commits_post_after_rebase).unwrap();
+    git_commit_list(
+        &repo,
+        &mut commit_count,
+        n_branch_1_commits_post_after_rebase,
+    )
+    .unwrap();
+    let expected = maybe_expected.unwrap_or_else(|| find_last_commit(&repo).unwrap().unwrap());
 
     git_switch_to_branch_2(&repo, branch_2).unwrap();
+
+    let mut bin = Command::cargo_bin("onto").unwrap();
+    bin.current_dir(path).arg(branch_1);
+    let expected = format!("{}\n", expected.as_object().id());
+    bin.assert().success().stdout(predicate::eq(expected));
 }

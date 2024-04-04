@@ -1,6 +1,6 @@
 use std::env;
 
-use anyhow::{Error, Ok};
+use anyhow::Error;
 use git2::{Repository, Sort};
 
 fn main() -> Result<(), Error> {
@@ -13,11 +13,17 @@ fn main() -> Result<(), Error> {
 
     let branch = repo.head()?.peel(git2::ObjectType::Any)?.id();
 
-    let merge_base = repo.merge_base(onto, branch)?;
+    let Ok(merge_base) = repo.merge_base(onto, branch) else {
+        assert!(repo.merge_base(branch, onto).is_err());
+
+        //No common merge_base, so suggest rebasing everything by setting upstream to onto.
+        println!("{onto}");
+        return Ok(());
+    };
+
     let merge_base_2 = repo.merge_base(branch, merge_base)?;
 
-    dbg!(merge_base);
-    dbg!(merge_base_2);
+    assert_eq!(merge_base, merge_base_2);
 
     let mut revwalk = repo.revwalk()?;
 
@@ -44,8 +50,8 @@ fn main() -> Result<(), Error> {
         let commit_onto = repo.find_commit(oid_onto)?;
 
         if commit.author() == commit_onto.author() && commit.message() == commit_onto.message() {
-            dbg!(oid);
-            dbg!(oid_onto);
+            // dbg!(oid);
+            // dbg!(oid_onto);
             break;
         }
     }
@@ -66,7 +72,7 @@ fn main() -> Result<(), Error> {
         fork_point = oid;
     }
 
-    dbg!(fork_point);
+    println!("{fork_point}");
 
     Ok(())
     // println!("Hello, world!");
