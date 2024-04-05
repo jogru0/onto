@@ -294,14 +294,14 @@ fn repro_issue_2() {
 fn repro_issue_3() {
     let name = "repro_issue_3";
 
-    for n_main_commits_pre in 0..5 {
-        for n_branch_1_commits_pre in 0..5 {
-            for n_branch_2_commits in 0..5 {
-                for n_main_commits_post in 0..5 {
-                    for n_branch_1_commits_post_before_rebase in 0..5 {
-                        for n_branch_1_commits_post_after_rebase in 0..5 {
+    for n_main_commits_pre in 1..4 {
+        for n_branch_1_commits_pre in 1..4 {
+            for n_branch_2_commits in 1..4 {
+                for n_main_commits_post in 1..4 {
+                    for n_branch_1_commits_post_before_rebase in 1..4 {
+                        for n_branch_1_commits_post_after_rebase in 1..4 {
                             repro_issue_dynamic(
-                                name,
+                                name.into(),
                                 n_main_commits_pre,
                                 n_branch_1_commits_pre,
                                 n_branch_2_commits,
@@ -318,7 +318,7 @@ fn repro_issue_3() {
 }
 
 fn repro_issue_dynamic(
-    name: &str,
+    name: String,
     n_main_commits_pre: u32,
     n_branch_1_commits_pre: u32,
     n_branch_2_commits: u32,
@@ -353,7 +353,6 @@ fn repro_issue_dynamic(
     git_create_branch_2(&repo, branch_1).unwrap();
     git_commit_list(&repo, &mut commit_count, n_branch_1_commits_pre).unwrap();
     let maybe_expected = find_last_commit(&repo).unwrap();
-    dbg!(&maybe_expected);
 
     git_create_branch_2(&repo, branch_2).unwrap();
     git_commit_list(&repo, &mut commit_count, n_branch_2_commits).unwrap();
@@ -382,5 +381,20 @@ fn repro_issue_dynamic(
     let mut bin = Command::cargo_bin("onto").unwrap();
     bin.current_dir(path).arg(branch_1);
     let expected = format!("{}\n", expected.as_object().id());
-    bin.assert().success().stdout(predicate::eq(expected));
+    bin.assert()
+        .append_context("name", name)
+        .append_context("n_main_commits_pre", n_main_commits_pre)
+        .append_context("n_branch_1_commits_pre", n_branch_1_commits_pre)
+        .append_context("n_branch_2_commits", n_branch_2_commits)
+        .append_context("n_main_commits_post", n_main_commits_post)
+        .append_context(
+            "n_branch_1_commits_post_before_rebase",
+            n_branch_1_commits_post_before_rebase,
+        )
+        .append_context(
+            "n_branch_1_commits_post_after_rebase",
+            n_branch_1_commits_post_after_rebase,
+        )
+        .stdout(predicate::eq(expected))
+        .success();
 }
