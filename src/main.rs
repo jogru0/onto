@@ -1,8 +1,15 @@
-use std::{env, process::exit};
+use std::process::exit;
 
 use anyhow::Error;
+use clap::Parser;
 use git2::{ErrorClass, ErrorCode, Oid, Repository, Sort};
 use log::{debug, info};
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    base_branch: String,
+}
 
 fn find_old_base(repo: &Repository, branch: Oid, onto: Oid) -> Result<Oid, Error> {
     let maybe_merge_base = match repo.merge_base(onto, branch) {
@@ -84,9 +91,9 @@ fn find_old_base(repo: &Repository, branch: Oid, onto: Oid) -> Result<Oid, Error
 }
 
 fn main() -> Result<(), Error> {
-    env_logger::init();
+    let args = Args::parse();
 
-    let args: Vec<String> = env::args().collect();
+    env_logger::init();
 
     let repo = Repository::open(".")?;
 
@@ -94,33 +101,32 @@ fn main() -> Result<(), Error> {
         Ok(head) => head,
         Err(err) => {
             if err.class() == ErrorClass::Reference && err.code() == ErrorCode::UnbornBranch {
-                eprintln!("unborn");
+                eprintln!("HEAD is an unborn branch");
                 exit(-1);
             }
-            dbg!(err.class());
-            dbg!(err.code());
             return Err(err.into());
         }
     };
+
+    if !head.is_branch() {
+        eprintln!("HEAD is not a branch");
+        exit(-1);
+    }
 
     let branch = match head.peel(git2::ObjectType::Any) {
         Ok(obj) => obj.id(),
         Err(err) => {
-            dbg!(err.class());
-            dbg!(err.code());
             return Err(err.into());
         }
     };
 
-    let onto = match repo.find_branch(&args[1], git2::BranchType::Local) {
+    let onto = match repo.find_branch(&args.base_branch, git2::BranchType::Local) {
         Ok(onto) => onto,
         Err(err) => {
             if err.class() == ErrorClass::Reference && err.code() == ErrorCode::NotFound {
-                eprintln!("branch does not exist");
-                exit(-1);
+                eprintln!("branch '{}' does not exist", args.base_branch);
+                exit(128);
             }
-            dbg!(err.class());
-            dbg!(err.code());
             return Err(err.into());
         }
     };

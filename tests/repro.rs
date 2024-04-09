@@ -399,15 +399,15 @@ fn repro_issue_dynamic(
 
     if branch_2_is_unborn {
         assert
-            .stderr(predicate::eq("unborn\n"))
+            .stderr(predicate::eq("HEAD is an unborn branch\n"))
             .stdout(predicate::eq(""))
             .code(255)
             .failure();
     } else if branch_1_does_not_exist {
         assert
-            .stderr(predicate::eq("branch does not exist\n"))
+            .stderr(predicate::eq("branch 'branch_1' does not exist\n"))
             .stdout(predicate::eq(""))
-            .code(255)
+            .code(128)
             .failure();
     } else {
         let expected_oid = expected.unwrap().as_object().id().to_string();
