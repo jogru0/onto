@@ -65,7 +65,6 @@ fn git_switch_to_branch_2(repo: &Repository, name: &str) -> std::result::Result<
 
         for entry in index.iter() {
             let path = repo_path.join(String::from_utf8(entry.path)?);
-            dbg!(&path);
             remove_file(path)?;
         }
 
@@ -103,8 +102,7 @@ fn git_rebase_2(repo: &Repository, name: &str) -> std::result::Result<(), Error>
     let mut rebase = repo.rebase(None, Some(&annotated_commit), None, None)?;
 
     while let Some(maybe_op) = rebase.next() {
-        let op = maybe_op?;
-        dbg!(op.kind().unwrap());
+        assert!(maybe_op.is_ok_and(|op| op.kind() == Some(git2::RebaseOperationType::Pick)));
         rebase.commit(None, &repo.signature()?, None)?;
     }
 
@@ -115,7 +113,6 @@ fn git_rebase_2(repo: &Repository, name: &str) -> std::result::Result<(), Error>
 
 fn git_commit(path: &str, name: &str) -> std::result::Result<(), Error> {
     let file_name = format!("{path}/{name}");
-    dbg!(&file_name);
     File::create_new(file_name).unwrap();
 
     let status = git(path).arg("add").arg(name).spawn()?.wait()?;
@@ -294,12 +291,12 @@ fn repro_issue_2() {
 fn repro_issue_3() {
     let name = "repro_issue_3";
 
-    for n_main_commits_pre in 1..4 {
-        for n_branch_1_commits_pre in 1..4 {
-            for n_branch_2_commits in 1..4 {
-                for n_main_commits_post in 1..4 {
-                    for n_branch_1_commits_post_before_rebase in 1..4 {
-                        for n_branch_1_commits_post_after_rebase in 1..4 {
+    for n_main_commits_pre in 0..4 {
+        for n_branch_1_commits_pre in 0..4 {
+            for n_branch_2_commits in 0..4 {
+                for n_main_commits_post in 0..4 {
+                    for n_branch_1_commits_post_before_rebase in 0..4 {
+                        for n_branch_1_commits_post_after_rebase in 0..4 {
                             repro_issue_dynamic(
                                 name.into(),
                                 n_main_commits_pre,
@@ -326,17 +323,7 @@ fn repro_issue_dynamic(
     n_branch_1_commits_post_before_rebase: u32,
     n_branch_1_commits_post_after_rebase: u32,
 ) {
-    if n_main_commits_pre + n_main_commits_post == 0
-        || n_branch_1_commits_pre + n_branch_1_commits_post_before_rebase == 0
-    {
-        //What rebase?
-        return;
-    }
-
-    if n_branch_2_commits == 0 {
-        //Unsure what's happening.
-        return;
-    }
+    let we_rebase = n_main_commits_pre != 0;
 
     let main = "main";
     let branch_1 = "branch_1";
@@ -367,21 +354,25 @@ fn repro_issue_dynamic(
         n_branch_1_commits_post_before_rebase,
     )
     .unwrap();
-    git_rebase_2(&repo, main).unwrap();
+
+    if we_rebase {
+        git_rebase_2(&repo, main).unwrap();
+    }
     git_commit_list(
         &repo,
         &mut commit_count,
         n_branch_1_commits_post_after_rebase,
     )
     .unwrap();
-    let expected = maybe_expected.unwrap_or_else(|| find_last_commit(&repo).unwrap().unwrap());
+    let expected = maybe_expected.or_else(|| find_last_commit(&repo).unwrap());
 
     git_switch_to_branch_2(&repo, branch_2).unwrap();
 
     let mut bin = Command::cargo_bin("onto").unwrap();
-    bin.current_dir(path).arg(branch_1);
-    let expected = format!("{}\n", expected.as_object().id());
-    bin.assert()
+    bin.current_dir(&path).arg(branch_1);
+
+    let assert = bin
+        .assert()
         .append_context("name", name)
         .append_context("n_main_commits_pre", n_main_commits_pre)
         .append_context("n_branch_1_commits_pre", n_branch_1_commits_pre)
@@ -394,7 +385,74 @@ fn repro_issue_dynamic(
         .append_context(
             "n_branch_1_commits_post_after_rebase",
             n_branch_1_commits_post_after_rebase,
-        )
-        .stdout(predicate::eq(expected))
-        .success();
+        );
+
+    let branch_2_is_unborn = n_branch_2_commits + n_branch_1_commits_pre + n_main_commits_pre == 0;
+    // n_main_commits_post doesn't matter, as n_main_commits_pre == 0 already implies that we never rebased.
+    let branch_1_does_not_exist = n_main_commits_pre
+        + n_branch_1_commits_pre
+        + n_branch_1_commits_post_before_rebase
+        + n_branch_1_commits_post_after_rebase
+        == 0;
+
+    assert!(!(branch_1_does_not_exist && we_rebase));
+
+    if branch_2_is_unborn {
+        assert
+            .stderr(predicate::eq("unborn\n"))
+            .stdout(predicate::eq(""))
+            .code(255)
+            .failure();
+    } else if branch_1_does_not_exist {
+        assert
+            .stderr(predicate::eq("branch does not exist\n"))
+            .stdout(predicate::eq(""))
+            .code(255)
+            .failure();
+    } else {
+        let expected_oid = expected.unwrap().as_object().id().to_string();
+        let expected_out = format!("{expected_oid}\n",);
+        assert
+            .stdout(predicate::eq(expected_out))
+            .stderr(predicate::eq(""))
+            .code(0)
+            .success();
+
+        let mut bin = Command::new("git");
+        bin.current_dir(&path)
+            .arg("rebase")
+            .arg("--onto")
+            .arg(branch_1)
+            .arg(expected_oid)
+            .assert()
+            .stdout(predicate::function(|stdout: &str| {
+                stdout.is_empty() || stdout == "Current branch branch_2 is up to date.\n"
+            }))
+            .stderr(predicate::function(|stderr: &str| {
+                !(stderr.contains("skip") || stderr.contains("drop"))
+            }))
+            .code(0)
+            .success();
+
+        let mut expected_commits = n_main_commits_pre
+            + n_branch_1_commits_post_after_rebase
+            + n_branch_1_commits_post_before_rebase
+            + n_branch_1_commits_pre
+            + n_branch_2_commits;
+
+        if we_rebase {
+            expected_commits += n_main_commits_post;
+        }
+
+        let mut bin = Command::new("git");
+        bin.current_dir(path)
+            .arg("rev-list")
+            .arg("--count")
+            .arg("HEAD")
+            .assert()
+            .stdout(format!("{expected_commits}\n"))
+            .stderr("")
+            .code(0)
+            .success();
+    }
 }

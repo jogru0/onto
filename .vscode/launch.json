@@ -1,0 +1,70 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'onto'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=onto",
+                    "--package=onto"
+                ],
+                "filter": {
+                    "name": "onto",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "branch_1"
+            ],
+            "cwd": "${workspaceFolder}/out/repro_issue_3",
+            "env": {
+                "RUST_LOG": "debug",
+                "RUST_BACKTRACE": "1",
+            }
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'onto'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=onto",
+                    "--package=onto"
+                ],
+                "filter": {
+                    "name": "onto",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'repro'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=repro",
+                    "--package=onto"
+                ],
+                "filter": {
+                    "name": "repro",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
