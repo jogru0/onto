@@ -9,7 +9,7 @@ repository = "https://github.com/jogru0/onto"
 readme = "README.md"
 keywords = ["git", "rebase", "onto", "git", "cli"]
 categories = ["command-line-utilities", "algorithms"]
-
+exclude = [".vscode"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
